@@ -1,0 +1,51 @@
+name: Build jicmp for Kylin ARM
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'adopt'
+        
+    - name: Install ARM toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+        
+    - name: Build jicmp
+      run: |
+        # 下载源码
+        wget https://github.com/rhuss/jicmp/archive/refs/tags/jicmp-2.0.3.tar.gz
+        tar xzf jicmp-2.0.3.tar.gz
+        cd jicmp-jicmp-2.0.3
+        
+        # 生成配置
+        ./autogen.sh
+        
+        # 交叉编译配置
+        ./configure --host=arm-linux-gnueabihf \
+                    --prefix=/usr \
+                    --with-jdk=$JAVA_HOME
+        
+        # 编译
+        make -j4
+        
+        # 打包结果
+        mkdir -p output
+        cp src/.libs/libjicmp.so output/
+        cp jicmp.jar output/
+        tar czf jicmp-kylin-arm.tar.gz output/
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: jicmp-kylin-arm
+        path: jicmp-jicmp-2.0.3/jicmp-kylin-arm.tar.gz
