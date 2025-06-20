@@ -18,6 +18,7 @@ jobs:
     - name: Install ARM toolchain and dependencies
       run: |
         sudo apt-get update
+        # 安装必要的构建工具和库
         sudo apt-get install -y \
           gcc-arm-linux-gnueabihf \
           g++-arm-linux-gnueabihf \
@@ -26,37 +27,53 @@ jobs:
           libtool \
           pkg-config \
           unzip \
-          libtool-bin
+          libtool-bin \
+          autotools-dev \
+          libltdl-dev \
+          automake-1.16  # 安装特定版本的 automake
         
     - name: Download and extract jicmp source
       run: |
-        wget https://github.com/OpenNMS/jicmp/archive/refs/heads/jira/JICMP-23.zip
-        unzip JICMP-23.zip
+        wget https://github.com/OpenNMS/jicmp/archive/refs/heads/jira/JICMP-23.zip -O jicmp-source.zip
+        unzip jicmp-source.zip
         mv jicmp-jira-JICMP-23 jicmp-source
         
     - name: Patch build system
       run: |
         cd jicmp-source
         
-        # 修复1: 添加缺失的 AM_RPM_INIT 宏定义
+        # 修复1: 更新过时的宏定义
+        sed -i 's/AC_CONFIG_HEADER/AC_CONFIG_HEADERS/' configure.ac
+        sed -i 's/AC_HEADER_STDC//' configure.ac
+        
+        # 修复2: 添加缺失的宏定义
         cat >> aclocal.m4 << 'EOF'
-        AC_DEFUN([AM_RPM_INIT], [
-        dnl 空实现，跳过 RPM 初始化
-        ])
+        AC_DEFUN([AM_RPM_INIT], [])
+        AC_DEFUN([AM_INIT_AUTOMAKE], [AC_REQUIRE([AC_PROG_INSTALL])])
+        AC_DEFUN([AC_ENABLE_STATIC], [])
+        AC_DEFUN([AC_PROG_LIBTOOL], [])
+        AC_DEFUN([AM_CONDITIONAL], [])
         EOF
         
-        # 修复2: 修改 configure.ac 跳过 RPM 检查
-        sed -i '/AM_RPM_INIT/d' configure.ac
-        
-        # 修复3: 确保包含必要的宏
+        # 修复3: 添加必要的宏包含
         echo "m4_include([aclocal.m4])" >> configure.ac
+        
+    - name: Run autoupdate
+      run: |
+        cd jicmp-source
+        # 运行 autoupdate 来更新过时的宏
+        autoupdate || true  # 即使有错误也继续
+        
+    - name: Regenerate build system
+      run: |
+        cd jicmp-source
+        # 使用特定版本的 automake
+        export PATH=/usr/share/automake-1.16:$PATH
+        autoreconf -fiv -I m4
         
     - name: Configure and build
       run: |
         cd jicmp-source
-        
-        # 重新生成构建系统
-        autoreconf -fiv
         
         # 设置Java环境
         export JAVA_HOME=$JAVA_HOME_8_X64
@@ -68,7 +85,7 @@ jobs:
           --prefix=/usr \
           --libdir=/usr/lib/arm-linux-gnueabihf \
           --with-jdk=$JAVA_HOME \
-          --disable-rpm \  # 明确禁用 RPM
+          --disable-rpm \
           --disable-static
         
         # 编译
@@ -76,13 +93,21 @@ jobs:
         
         # 准备输出
         mkdir -p output
-        cp src/.libs/libjicmp.so* output/ || find src -name "libjicmp.so*" -exec cp {} output/ \;
+        # 尝试从不同位置复制库文件
+        cp src/.libs/libjicmp.so* output/ 2>/dev/null || true
+        cp .libs/libjicmp.so* output/ 2>/dev/null || true
         cp jicmp.jar output/
         
         # 验证关键文件
         if [ ! -f "output/libjicmp.so" ]; then
-          echo "错误：未找到 libjicmp.so!"
-          find . -name "*.so*"  # 列出所有 .so 文件
+          echo "警告：未找到标准位置的 libjicmp.so，尝试查找其他位置"
+          find . -name "libjicmp.so*" -exec cp {} output/ \;
+        fi
+        
+        # 确保至少有一个库文件
+        if [ -z "$(ls output/libjicmp.so* 2>/dev/null)" ]; then
+          echo "错误：编译后未找到任何 libjicmp.so 文件"
+          find . -name "*.so*"
           exit 1
         fi
         
@@ -91,7 +116,6 @@ jobs:
         echo "Build date: $(date)" >> output/BUILD_INFO
         echo "GitHub Run ID: $GITHUB_RUN_ID" >> output/BUILD_INFO
         echo "Library path: $(find . -name libjicmp.so)" >> output/BUILD_INFO
-        echo "Configure options: --host=arm-linux-gnueabihf --disable-rpm" >> output/BUILD_INFO
         
     - name: Package artifacts
       run: |
