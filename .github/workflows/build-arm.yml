@@ -1,6 +1,9 @@
-name: Build jicmp for Kylin ARM (OpenNMS branch)
+name: Build jicmp for Kylin ARM (Official method)
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -8,124 +11,121 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+      with:
+        # 官方要求完整克隆以包含子模块
+        fetch-depth: 0
+        submodules: recursive
+        
     - name: Set up JDK 8
       uses: actions/setup-java@v4
       with:
         java-version: '8'
         distribution: 'temurin'
         
-    - name: Install ARM toolchain and dependencies
+    - name: Install build dependencies
       run: |
         sudo apt-get update
-        # 安装必要的构建工具和库
         sudo apt-get install -y \
-          gcc-arm-linux-gnueabihf \
-          g++-arm-linux-gnueabihf \
-          autoconf \
           automake \
+          autoconf \
           libtool \
-          pkg-config \
-          unzip \
-          libtool-bin \
-          autotools-dev \
-          libltdl-dev \
-          automake-1.16  # 安装特定版本的 automake
+          gcc-arm-linux-gnueabihf \
+          g++-arm-linux-gnueabihf
         
-    - name: Download and extract jicmp source
+    - name: Prepare ARM environment
       run: |
-        wget https://github.com/OpenNMS/jicmp/archive/refs/heads/jira/JICMP-23.zip -O jicmp-source.zip
-        unzip jicmp-source.zip
-        mv jicmp-jira-JICMP-23 jicmp-source
+        # 设置 ARM 交叉编译工具链
+        export CC=arm-linux-gnueabihf-gcc
+        export CXX=arm-linux-gnueabihf-g++
+        export AR=arm-linux-gnueabihf-ar
+        export RANLIB=arm-linux-gnueabihf-ranlib
+        export LD=arm-linux-gnueabihf-ld
         
-    - name: Patch build system
-      run: |
-        cd jicmp-source
-        
-        # 修复1: 更新过时的宏定义
-        sed -i 's/AC_CONFIG_HEADER/AC_CONFIG_HEADERS/' configure.ac
-        sed -i 's/AC_HEADER_STDC//' configure.ac
-        
-        # 修复2: 添加缺失的宏定义
-        cat >> aclocal.m4 << 'EOF'
-        AC_DEFUN([AM_RPM_INIT], [])
-        AC_DEFUN([AM_INIT_AUTOMAKE], [AC_REQUIRE([AC_PROG_INSTALL])])
-        AC_DEFUN([AC_ENABLE_STATIC], [])
-        AC_DEFUN([AC_PROG_LIBTOOL], [])
-        AC_DEFUN([AM_CONDITIONAL], [])
-        EOF
-        
-        # 修复3: 添加必要的宏包含
-        echo "m4_include([aclocal.m4])" >> configure.ac
-        
-    - name: Run autoupdate
-      run: |
-        cd jicmp-source
-        # 运行 autoupdate 来更新过时的宏
-        autoupdate || true  # 即使有错误也继续
-        
-    - name: Regenerate build system
-      run: |
-        cd jicmp-source
-        # 使用特定版本的 automake
-        export PATH=/usr/share/automake-1.16:$PATH
-        autoreconf -fiv -I m4
-        
-    - name: Configure and build
-      run: |
-        cd jicmp-source
-        
-        # 设置Java环境
+        # 设置 Java 环境
         export JAVA_HOME=$JAVA_HOME_8_X64
         export PATH=$JAVA_HOME/bin:$PATH
         
-        # 配置ARM交叉编译
+        # 验证工具链
+        arm-linux-gnueabihf-gcc --version
+        java -version
+        
+    - name: Initialize submodules (官方要求步骤)
+      run: |
+        git submodule update --init --recursive
+        
+    - name: Regenerate configure scripts
+      run: |
+        autoreconf -fvi
+        
+    - name: Configure for ARM
+      run: |
+        # 官方配置命令，添加 ARM 交叉编译参数
         ./configure \
           --host=arm-linux-gnueabihf \
           --prefix=/usr \
-          --libdir=/usr/lib/arm-linux-gnueabihf \
-          --with-jdk=$JAVA_HOME \
-          --disable-rpm \
-          --disable-static
+          --libdir=/usr/lib/arm-linux-gnueabihf
         
-        # 编译
-        make -j4 V=1
+    - name: Build library
+      run: |
+        make -j4
         
-        # 准备输出
-        mkdir -p output
-        # 尝试从不同位置复制库文件
-        cp src/.libs/libjicmp.so* output/ 2>/dev/null || true
-        cp .libs/libjicmp.so* output/ 2>/dev/null || true
-        cp jicmp.jar output/
-        
-        # 验证关键文件
-        if [ ! -f "output/libjicmp.so" ]; then
-          echo "警告：未找到标准位置的 libjicmp.so，尝试查找其他位置"
-          find . -name "libjicmp.so*" -exec cp {} output/ \;
-        fi
-        
-        # 确保至少有一个库文件
-        if [ -z "$(ls output/libjicmp.so* 2>/dev/null)" ]; then
-          echo "错误：编译后未找到任何 libjicmp.so 文件"
+    - name: Test build artifacts
+      run: |
+        # 验证关键文件存在
+        if [ ! -f "src/.libs/libjicmp.so" ]; then
+          echo "错误：未找到 libjicmp.so!"
           find . -name "*.so*"
           exit 1
         fi
         
-        # 添加构建信息
-        echo "Source: OpenNMS/jicmp branch jira/JICMP-23" > output/BUILD_INFO
-        echo "Build date: $(date)" >> output/BUILD_INFO
-        echo "GitHub Run ID: $GITHUB_RUN_ID" >> output/BUILD_INFO
-        echo "Library path: $(find . -name libjicmp.so)" >> output/BUILD_INFO
+        # 检查文件架构
+        file src/.libs/libjicmp.so
+        echo "文件架构检查："
+        arm-linux-gnueabihf-objdump -f src/.libs/libjicmp.so | grep architecture
         
     - name: Package artifacts
       run: |
-        cd jicmp-source/output
-        tar czf ../jicmp-kylin-arm-opennms.tar.gz *
-        cd ..
+        # 创建输出目录
+        mkdir -p output
+        
+        # 复制核心文件
+        cp src/.libs/libjicmp.so* output/
+        cp jicmp.jar output/
+        
+        # 创建安装脚本
+        cat > output/install.sh << 'EOF'
+        #!/bin/bash
+        # 官方安装脚本
+        LIB_DIR="/usr/lib"
+        JAVA_DIR="/usr/share/java"
+        
+        # 安装库文件
+        sudo install -m 0755 libjicmp.so $LIB_DIR/
+        sudo ldconfig
+        
+        # 安装Java库
+        sudo install -m 0644 jicmp.jar $JAVA_DIR/
+        
+        echo "安装成功！"
+        echo "库文件位置: $LIB_DIR/libjicmp.so"
+        echo "Java库位置: $JAVA_DIR/jicmp.jar"
+        EOF
+        
+        chmod +x output/install.sh
+        
+        # 创建构建信息
+        echo "Source: OpenNMS/jicmp" > output/BUILD_INFO
+        echo "Branch: $(git rev-parse --abbrev-ref HEAD)" >> output/BUILD_INFO
+        echo "Commit: $(git rev-parse HEAD)" >> output/BUILD_INFO
+        echo "Build date: $(date)" >> output/BUILD_INFO
+        echo "Target: ARM Linux (gnueabihf)" >> output/BUILD_INFO
+        
+        # 打包
+        tar czf jicmp-kylin-arm.tar.gz -C output .
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: jicmp-kylin-arm-opennms
-        path: jicmp-source/jicmp-kylin-arm-opennms.tar.gz
+        name: jicmp-kylin-arm
+        path: jicmp-kylin-arm.tar.gz
         retention-days: 7
