@@ -22,12 +22,12 @@ jobs:
         
     - name: Download and extract jicmp source
       run: |
-        wget https://github.com/rhuss/jicmp/archive/refs/tags/jicmp-2.0.3.tar.gz
-        tar xzf jicmp-2.0.3.tar.gz
+        wget https://github.com/OpenNMS/jicmp/releases/download/jicmp-3.0.5-1/jicmp-3.0.5.tar.gz
+        tar xzf jicmp-3.0.5.tar.gz
         
     - name: Configure and build
       run: |
-        cd jicmp-jicmp-2.0.3
+        cd jicmp-3.0.5
         
         # 生成配置脚本
         autoreconf -fiv
@@ -57,7 +57,7 @@ jobs:
         
     - name: Package artifacts
       run: |
-        cd jicmp-jicmp-2.0.3/output
+        cd jicmp-3.0.5/output
         tar czf ../jicmp-kylin-arm.tar.gz *
         cd ..
         
@@ -65,5 +65,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: jicmp-kylin-arm
-        path: jicmp-jicmp-2.0.3/jicmp-kylin-arm.tar.gz
+        path: jicmp-jicmp-3.0.5/jicmp-kylin-arm.tar.gz
         retention-days: 7
