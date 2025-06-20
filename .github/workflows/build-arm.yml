@@ -1,4 +1,4 @@
-name: Build jicmp for Kylin ARM
+name: Build jicmp for Kylin ARM (OpenNMS branch)
 
 on: [push]
 
@@ -18,52 +18,70 @@ jobs:
     - name: Install ARM toolchain
       run: |
         sudo apt-get update
-        sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf autoconf automake libtool
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          g++-arm-linux-gnueabihf \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
+          unzip
         
     - name: Download and extract jicmp source
       run: |
-        wget https://github.com/OpenNMS/jicmp/releases/download/jicmp-3.0.5-1/jicmp-3.0.5.tar.gz
-        tar xzf jicmp-3.0.5.tar.gz
+        # 使用指定的 OpenNMS 分支源码
+        wget https://github.com/OpenNMS/jicmp/archive/refs/heads/jira/JICMP-23.zip
+        unzip JICMP-23.zip
+        mv jicmp-jira-JICMP-23 jicmp-source
         
     - name: Configure and build
       run: |
-        cd jicmp-3.0.5
+        cd jicmp-source
         
-        # 生成配置脚本
+        # 生成构建系统
         autoreconf -fiv
         
-        # 设置交叉编译环境
+        # 设置Java环境
         export JAVA_HOME=$JAVA_HOME_8_X64
         export PATH=$JAVA_HOME/bin:$PATH
         
-        # 配置编译选项
+        # 配置ARM交叉编译
         ./configure \
           --host=arm-linux-gnueabihf \
           --prefix=/usr \
-          --libdir=/usr/lib/arm-linux-gnueabihf
-          
+          --libdir=/usr/lib/arm-linux-gnueabihf \
+          --with-jdk=$JAVA_HOME \
+          --disable-static
+        
         # 编译
-        make -j4
+        make -j4 V=1
         
-        # 准备构建产物
+        # 准备输出
         mkdir -p output
-        cp src/.libs/libjicmp.so output/
-        cp jicmp.jar output/
-        cp README output/
+        find . -name "*.so*" -exec cp {} output/ \;
+        find . -name "*.jar" -exec cp {} output/ \;
         
-        # 创建版本信息
-        echo "Build date: $(date)" > output/BUILD_INFO
+        # 验证关键文件
+        if [ ! -f "output/libjicmp.so" ]; then
+          echo "错误：未找到 libjicmp.so!"
+          exit 1
+        fi
+        
+        # 添加构建信息
+        echo "Source: OpenNMS/jicmp branch jira/JICMP-23" > output/BUILD_INFO
+        echo "Build date: $(date)" >> output/BUILD_INFO
         echo "GitHub Run ID: $GITHUB_RUN_ID" >> output/BUILD_INFO
+        echo "Library path: $(find . -name libjicmp.so)" >> output/BUILD_INFO
         
     - name: Package artifacts
       run: |
-        cd jicmp-3.0.5/output
-        tar czf ../jicmp-kylin-arm.tar.gz *
+        cd jicmp-source/output
+        tar czf ../jicmp-kylin-arm-opennms.tar.gz *
         cd ..
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: jicmp-kylin-arm
-        path: jicmp-jicmp-3.0.5/jicmp-kylin-arm.tar.gz
+        name: jicmp-kylin-arm-opennms
+        path: jicmp-source/jicmp-kylin-arm-opennms.tar.gz
         retention-days: 7
