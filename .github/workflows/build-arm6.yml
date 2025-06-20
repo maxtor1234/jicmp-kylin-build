@@ -1,4 +1,4 @@
-name: Build jicmp6 for Kylin ARM
+name: Build jicmp for Kylin ARM (Fixed)
 
 on:
   push:
@@ -9,13 +9,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout jicmp6 with submodules
+    - name: Checkout code with submodules
       uses: actions/checkout@v4
       with:
         repository: 'OpenNMS/jicmp6'
-        ref: 'main'  # 使用默认分支
-        submodules: 'recursive'
-        path: 'jicmp6-source'
+
+        
+    - name: Verify source structure
+      run: |
+        cd jicmp-source
+        echo "目录内容:"
+        ls -la
+        echo "configure.ac 存在: $(if [ -f configure.ac ]; then echo '是'; else echo '否'; fi)"
+        echo "macros 子模块: $(if [ -d macros ]; then echo '存在'; else echo '缺失'; fi)"
         
     - name: Set up JDK 8
       uses: actions/setup-java@v4
@@ -34,55 +40,55 @@ jobs:
           g++-arm-linux-gnueabihf \
           make
         
-    - name: Initialize and fix build system
+    - name: Initialize and fix submodules
       run: |
-        cd jicmp6-source
+        cd jicmp-source
         
         # 确保子模块初始化
         if [ ! -d "macros" ]; then
+          echo "初始化子模块..."
           git submodule init
           git submodule update --recursive
         fi
         
-        # 如果缺失 configure.ac，创建基本版本
+        # 如果仍然缺失 configure.ac，尝试生成
         if [ ! -f "configure.ac" ]; then
-          cat > configure.ac << 'EOF'
-          AC_PREREQ([2.69])
-          AC_INIT([jicmp6], [1.0.0])
-          AM_INIT_AUTOMAKE([foreign])
-          AC_CONFIG_SRCDIR([src/main/c/jicmp6.c])
-          AC_CONFIG_HEADERS([config.h])
-          AC_PROG_CC
-          LT_INIT
-          AC_CONFIG_FILES([Makefile])
-          AC_OUTPUT
-          EOF
-        fi
-        
-        # 准备宏文件
-        mkdir -p m4
-        if [ -d "macros" ]; then
-          cp macros/* m4/ || true
+          echo "生成 configure.ac..."
+          touch configure.ac
+          echo "AC_PREREQ([2.69])" > configure.ac
+          echo "AC_INIT([jicmp], [2.0.3])" >> configure.ac
+          echo "AM_INIT_AUTOMAKE([foreign])" >> configure.ac
+          echo "AC_CONFIG_SRCDIR([src/main/c/jicmp.c])" >> configure.ac
+          echo "AC_CONFIG_HEADERS([config.h])" >> configure.ac
+          echo "AC_PROG_CC" >> configure.ac
+          echo "AC_PROG_LIBTOOL" >> configure.ac
+          echo "AC_CONFIG_FILES([Makefile])" >> configure.ac
+          echo "AC_OUTPUT" >> configure.ac
         fi
         
     - name: Regenerate build system
       run: |
-        cd jicmp6-source
+        cd jicmp-source
         
-        # 生成配置系统
+        # 确保包含必要的宏
+        if [ -d "macros" ]; then
+          cp macros/* m4/ 2>/dev/null || true
+        fi
+        
+        # 运行 autoreconf
         autoreconf -fvi -I m4 || {
-          # 备用方案
+          echo "autoreconf 失败，尝试替代方案"
           aclocal -I m4
           autoheader
           automake --add-missing --copy
           autoconf
         }
         
-    - name: Configure for ARM
+    - name: Configure and build
       run: |
-        cd jicmp6-source
+        cd jicmp-source
         
-        # 设置 ARM 交叉编译环境
+        # 设置 ARM 工具链
         export CC=arm-linux-gnueabihf-gcc
         export CXX=arm-linux-gnueabihf-g++
         export AR=arm-linux-gnueabihf-ar
@@ -93,106 +99,66 @@ jobs:
         export JAVA_HOME=$JAVA_HOME_8_X64
         export PATH=$JAVA_HOME/bin:$PATH
         
-        # 配置编译
+        # 配置
         ./configure \
           --host=arm-linux-gnueabihf \
           --prefix=/usr \
           --libdir=/usr/lib/arm-linux-gnueabihf
         
-    - name: Build jicmp6
-      run: |
-        cd jicmp6-source
+        # 编译
         make -j4
         
     - name: Package artifacts
       run: |
-        cd jicmp6-source
+        cd jicmp-source
         
-        # 查找生成的库文件
-        LIB_PATH=$(find . -name 'libjicmp6*.so' -print -quit)
+        # 查找库文件
+        LIB_PATH=$(find . -name libjicmp.so -print -quit)
+        
         if [ -z "$LIB_PATH" ]; then
-          echo "警告: 未找到标准库文件，尝试从源码目录查找"
-          LIB_PATH=src/main/c/.libs/libjicmp6.so
-          if [ ! -f "$LIB_PATH" ]; then
-            echo "错误: 未找到 libjicmp6.so"
-            find . -name "*.so*"
-            exit 1
-          fi
+          echo "错误: 未找到 libjicmp.so"
+          find . -name "*.so*"
+          exit 1
         fi
         
         # 创建输出目录
         mkdir -p output
-        cp $LIB_PATH output/libjicmp6.so
-        
-        # 查找 JAR 文件
-        JAR_PATH=$(find . -name 'jicmp6*.jar' -print -quit)
-        if [ -n "$JAR_PATH" ]; then
-          cp $JAR_PATH output/jicmp6.jar
-        else
-          echo "警告: 未找到 jicmp6.jar"
-        fi
+        cp $LIB_PATH output/libjicmp.so
+        cp jicmp.jar output/
         
         # 创建安装脚本
         cat > output/install.sh << 'EOF'
         #!/bin/bash
-        # jicmp6 安装脚本
+        # 安装脚本
         set -e
-        
-        # 配置路径
         LIB_DIR="/usr/lib"
         JAVA_DIR="/usr/share/java"
         
-        # 验证文件
-        if [ ! -f "libjicmp6.so" ]; then
-          echo "错误: 缺少 libjicmp6.so 文件"
+        if [ ! -f "libjicmp.so" ]; then
+          echo "错误: 缺少 libjicmp.so"
           exit 1
         fi
         
-        if [ ! -f "jicmp6.jar" ]; then
-          echo "警告: 缺少 jicmp6.jar 文件"
-        fi
+        echo "安装 libjicmp.so 到 $LIB_DIR"
+        sudo install -m 0755 libjicmp.so $LIB_DIR/
         
-        # 安装共享库
-        echo "安装 libjicmp6.so 到 $LIB_DIR"
-        sudo install -m 0755 libjicmp6.so $LIB_DIR/
+        echo "安装 jicmp.jar 到 $JAVA_DIR"
+        sudo install -m 0644 jicmp.jar $JAVA_DIR/
         
-        # 安装 Java 库
-        if [ -f "jicmp6.jar" ]; then
-          echo "安装 jicmp6.jar 到 $JAVA_DIR"
-          sudo install -m 0644 jicmp6.jar $JAVA_DIR/
-        fi
-        
-        # 更新动态链接
         echo "更新动态链接库缓存"
         sudo ldconfig
         
-        echo ""
-        echo "=============================================="
-        echo "jicmp6 安装成功!"
-        echo "测试命令:"
-        if [ -f "jicmp6.jar" ]; then
-          echo "  java -cp $JAVA_DIR/jicmp6.jar org.opennms.protocols.icmp6.TestPing"
-        else
-          echo "  # 需要手动验证库加载"
-        fi
-        echo "=============================================="
+        echo "安装成功!"
         EOF
         
         chmod +x output/install.sh
         
-        # 添加构建信息
-        echo "Source: OpenNMS/jicmp6" > output/BUILD_INFO
-        echo "Branch: $(git rev-parse --abbrev-ref HEAD)" >> output/BUILD_INFO
-        echo "Commit: $(git rev-parse HEAD)" >> output/BUILD_INFO
-        echo "Build date: $(date)" >> output/BUILD_INFO
-        echo "Target: ARM Linux (gnueabihf)" >> output/BUILD_INFO
-        
         # 打包
-        tar czf ../jicmp6-kylin-arm.tar.gz -C output .
+        tar czf ../jicmp-kylin-arm.tar.gz -C output .
         
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: jicmp6-kylin-arm
-        path: jicmp6-kylin-arm.tar.gz
+        name: jicmp-kylin-arm
+        path: jicmp-kylin-arm.tar.gz
         retention-days: 7
