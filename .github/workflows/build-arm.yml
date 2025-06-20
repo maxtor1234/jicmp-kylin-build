@@ -15,7 +15,7 @@ jobs:
         java-version: '8'
         distribution: 'temurin'
         
-    - name: Install ARM toolchain
+    - name: Install ARM toolchain and dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -25,20 +25,37 @@ jobs:
           automake \
           libtool \
           pkg-config \
-          unzip
+          unzip \
+          libtool-bin
         
     - name: Download and extract jicmp source
       run: |
-        # 使用指定的 OpenNMS 分支源码
         wget https://github.com/OpenNMS/jicmp/archive/refs/heads/jira/JICMP-23.zip
         unzip JICMP-23.zip
         mv jicmp-jira-JICMP-23 jicmp-source
+        
+    - name: Patch build system
+      run: |
+        cd jicmp-source
+        
+        # 修复1: 添加缺失的 AM_RPM_INIT 宏定义
+        cat >> aclocal.m4 << 'EOF'
+        AC_DEFUN([AM_RPM_INIT], [
+        dnl 空实现，跳过 RPM 初始化
+        ])
+        EOF
+        
+        # 修复2: 修改 configure.ac 跳过 RPM 检查
+        sed -i '/AM_RPM_INIT/d' configure.ac
+        
+        # 修复3: 确保包含必要的宏
+        echo "m4_include([aclocal.m4])" >> configure.ac
         
     - name: Configure and build
       run: |
         cd jicmp-source
         
-        # 生成构建系统
+        # 重新生成构建系统
         autoreconf -fiv
         
         # 设置Java环境
@@ -51,6 +68,7 @@ jobs:
           --prefix=/usr \
           --libdir=/usr/lib/arm-linux-gnueabihf \
           --with-jdk=$JAVA_HOME \
+          --disable-rpm \  # 明确禁用 RPM
           --disable-static
         
         # 编译
@@ -58,12 +76,13 @@ jobs:
         
         # 准备输出
         mkdir -p output
-        find . -name "*.so*" -exec cp {} output/ \;
-        find . -name "*.jar" -exec cp {} output/ \;
+        cp src/.libs/libjicmp.so* output/ || find src -name "libjicmp.so*" -exec cp {} output/ \;
+        cp jicmp.jar output/
         
         # 验证关键文件
         if [ ! -f "output/libjicmp.so" ]; then
           echo "错误：未找到 libjicmp.so!"
+          find . -name "*.so*"  # 列出所有 .so 文件
           exit 1
         fi
         
@@ -72,6 +91,7 @@ jobs:
         echo "Build date: $(date)" >> output/BUILD_INFO
         echo "GitHub Run ID: $GITHUB_RUN_ID" >> output/BUILD_INFO
         echo "Library path: $(find . -name libjicmp.so)" >> output/BUILD_INFO
+        echo "Configure options: --host=arm-linux-gnueabihf --disable-rpm" >> output/BUILD_INFO
         
     - name: Package artifacts
       run: |
