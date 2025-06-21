@@ -38,7 +38,7 @@ jobs:
           automake \
           autoconf \
           libtool \
-          gcc-aarch64-linux-gnu \  # 关键修改：64位工具链
+          gcc-aarch64-linux-gnu \ 
           g++-aarch64-linux-gnu \
           make
         
