@@ -29,7 +29,7 @@ jobs:
            
             # 3. 编译运行 TestInitialization
             #sysctl -w net.ipv4.ping_group_range="0 429496729"
-            echo "net.ipv4.ping_group_range=0 429496729" > /etc/sysctl.d/03-non-root-icmp.conf
+            #echo "net.ipv4.ping_group_range=0 429496729" > /etc/sysctl.d/03-non-root-icmp.conf
             echo "开始运行"
             javac -cp jicmp.jar TestInitialization.java
             java -cp .:jicmp.jar TestInitialization
