@@ -8,7 +8,22 @@ on:
 jobs:
   build:
     runs-on:  ubuntu-22.04
+
     steps:
+    
+    - name: Fix Ubuntu ARM64 sources
+      run: |
+          # 使用ARM专用镜像源
+          sudo tee /etc/apt/sources.list <<EOF
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted
+          deb [arch=arm64] http://ports.ubuntu.com jammy main restricted
+          deb [arch=arm64] http://ports.ubuntu.com jammy-updates main restricted
+          EOF
+          # 添加架构并更新
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update -y  
+            
     - name: Checkout code with submodules
       uses: actions/checkout@v4
       with:
