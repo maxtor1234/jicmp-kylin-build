@@ -1,0 +1,187 @@
+name: Build jicmp for Kylin ARM (Fixed)-64
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on:  ubuntu-22.04
+
+    steps:
+    
+    - name: Fix Ubuntu ARM64 sources
+      run: |
+          # 使用ARM专用镜像源
+          sudo tee /etc/apt/sources.list <<EOF
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted
+          deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted
+          deb [arch=arm64] http://ports.ubuntu.com jammy main restricted
+          deb [arch=arm64] http://ports.ubuntu.com jammy-updates main restricted
+          EOF
+          # 添加架构并更新
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update -y  
+            
+    - name: Checkout code with submodules
+      uses: actions/checkout@v4
+      with:
+        repository: 'OpenNMS/jicmp6'
+        submodules: 'recursive'
+        path: 'jicmp-source'
+        
+    - name: Verify source structure
+      run: |
+        cd jicmp-source
+        echo "目录内容:"
+        ls -la
+        echo "configure.ac 存在: $(if [ -f configure.ac ]; then echo '是'; else echo '否'; fi)"
+        echo "macros 子模块: $(if [ -d macros ]; then echo '存在'; else echo '缺失'; fi)"
+        
+    - name: Set up JDK 8
+      uses: actions/setup-java@v4
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        
+
+        
+    - name: Enable multi-arch and update
+      run: |
+        sudo dpkg --add-architecture arm64
+        sudo apt-get update -y      
+        
+    - name: Install build dependencies
+      run: |
+        sudo apt-get install -y automake 
+        sudo apt-get install -y build-essential 
+        sudo apt-get install -y binutils-aarch64-linux-gnu 
+        sudo apt-get install -y autoconf 
+        sudo apt-get install -y libtool 
+        sudo apt-get install -y gcc-aarch64-linux-gnu 
+        sudo apt-get install -y g++-aarch64-linux-gnu  
+        sudo apt-get install -y libc6-dev-arm64-cross 
+        sudo apt-get install -y make
+        
+    - name: Initialize and fix submodules
+      run: |
+        cd jicmp-source
+        echo "验证目标架构"
+        aarch64-linux-gnu-gcc -v
+        aarch64-linux-gnu-gcc -dumpmachine
+        # 确保子模块初始化
+        if [ ! -d "macros" ]; then
+          echo "初始化子模块..."
+          git submodule init
+          git submodule update --recursive
+        fi
+        
+        # 如果仍然缺失 configure.ac，尝试生成
+        if [ ! -f "configure.ac" ]; then
+          echo "生成 configure.ac..."
+          touch configure.ac
+          echo "AC_PREREQ([2.69])" > configure.ac
+          echo "AC_INIT([jicmp], [2.0.3])" >> configure.ac
+          echo "AM_INIT_AUTOMAKE([foreign])" >> configure.ac
+          echo "AC_CONFIG_SRCDIR([src/main/c/jicmp.c])" >> configure.ac
+          echo "AC_CONFIG_HEADERS([config.h])" >> configure.ac
+          echo "AC_PROG_CC" >> configure.ac
+          echo "AC_PROG_LIBTOOL" >> configure.ac
+          echo "AC_CONFIG_FILES([Makefile])" >> configure.ac
+          echo "AC_OUTPUT" >> configure.ac
+        fi
+        
+    - name: Regenerate build system
+      run: |
+        cd jicmp-source
+        
+        # 确保包含必要的宏
+        if [ -d "macros" ]; then
+          cp macros/* m4/ 2>/dev/null || true
+        fi
+        
+        # 运行 autoreconf
+        autoreconf -fvi -I m4 || {
+          echo "autoreconf 失败，尝试替代方案"
+          aclocal -I m4
+          autoheader
+          automake --add-missing --copy
+          autoconf
+        }
+        
+    - name: Configure and build
+      run: |
+        cd jicmp-source
+        
+        # 设置 ARM 工具链
+        export CC=aarch64-linux-gnu-gcc 
+        export CXX=aarch64-linux-gnu-g++
+        export AR=aarch64-linux-gnu-ar
+        export RANLIB=aarch64-linux-gnu-ranlib
+        export LD=aarch64-linux-gnu-ld
+        
+        # 设置 Java 环境
+        export JAVA_HOME=$JAVA_HOME_8_X64
+        export PATH=$JAVA_HOME/bin:$PATH
+        #wget -O config.sub "https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD"
+        #chmod +x config.sub
+        # 配置
+        ./configure --host=aarch64-linux-gnu --prefix=/usr --libdir=/usr/lib/arm-linux-gnueabihf    
+        # 编译
+        make -j4
+        
+    - name: Package artifacts
+      run: |
+        cd jicmp-source
+        
+        # 查找库文件
+        LIB_PATH=$(find . -name libjicmp.so -print -quit)
+        
+        if [ -z "$LIB_PATH" ]; then
+          echo "错误: 未找到 libjicmp.so"
+          find . -name "*.so*"
+          exit 1
+        fi
+        
+        # 创建输出目录
+        mkdir -p output
+        cp $LIB_PATH output/libjicmp.so
+        cp jicmp.jar output/
+        
+        # 创建安装脚本
+        cat > output/install.sh << 'EOF'
+        #!/bin/bash
+        # 安装脚本
+        set -e
+        LIB_DIR="/usr/lib"
+        JAVA_DIR="/usr/share/java"
+        
+        if [ ! -f "libjicmp.so" ]; then
+          echo "错误: 缺少 libjicmp.so"
+          exit 1
+        fi
+        
+        echo "安装 libjicmp.so 到 $LIB_DIR"
+        sudo install -m 0755 libjicmp.so $LIB_DIR/
+        
+        echo "安装 jicmp.jar 到 $JAVA_DIR"
+        sudo install -m 0644 jicmp.jar $JAVA_DIR/
+        
+        echo "更新动态链接库缓存"
+        sudo ldconfig
+        
+        echo "安装成功!"
+        EOF
+        
+        chmod +x output/install.sh
+        
+        # 打包
+        tar czf ../jicmp-kylin-arm.tar.gz -C output .
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: jicmp-kylin-arm
+        path: jicmp-kylin-arm.tar.gz
+        retention-days: 7
