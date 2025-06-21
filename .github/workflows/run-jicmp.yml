@@ -18,7 +18,7 @@ jobs:
 
       - name: Run Java test in ARM64 container  
         run: |
-          docker run --platform linux/arm64 -v $(pwd):/app arm64v8/ubuntu:22.04 /bin/bash -c "
+          docker run --cap-add=NET_RAW --sysctl net.ipv4.ping_group_range="0 2147483647" --platform linux/arm64 -v $(pwd):/app arm64v8/ubuntu:22.04 /bin/bash -c "
             # 1. 安装 OpenJDK 和基础依赖
             apt-get update && apt-get install -y openjdk-17-jdk libc6-dev
 
@@ -27,8 +27,8 @@ jobs:
             export LD_LIBRARY_PATH=/app:$LD_LIBRARY_PATH
 
             # 3. 编译运行 TestInitialization
-            sysctl -w net.ipv4.ping_group_range="0 429496729"
-            echo "net.ipv4.ping_group_range=0 429496729" > /etc/sysctl.d/03-non-root-icmp.conf
+            # sysctl -w net.ipv4.ping_group_range="0 429496729"
+            #echo "net.ipv4.ping_group_range=0 429496729" > /etc/sysctl.d/03-non-root-icmp.conf
             echo "开始运行"
             javac -cp jicmp.jar TestInitialization.java
             java -cp .:jicmp.jar TestInitialization
