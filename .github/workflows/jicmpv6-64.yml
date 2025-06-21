@@ -1,4 +1,4 @@
-name: Build jicmp for Kylin ARM (Fixed)-64
+name: Build jicmp6 for Kylin ARM (Fixed)-64
 
 on:
   push:
@@ -136,17 +136,17 @@ jobs:
         cd jicmp-source
         
         # 查找库文件
-        LIB_PATH=$(find . -name libjicmp.so -print -quit)
+        LIB_PATH=$(find . -name libjicmp6.la -print -quit)
         
         if [ -z "$LIB_PATH" ]; then
-          echo "错误: 未找到 libjicmp.so"
+          echo "错误: 未找到 libjicmp6.la"
           find . -name "*.so*"
           exit 1
         fi
         
         # 创建输出目录
         mkdir -p output
-        cp $LIB_PATH output/libjicmp.so
+        cp $LIB_PATH output/libjicmp6.la
         cp jicmp.jar output/
         
         # 创建安装脚本
@@ -157,13 +157,13 @@ jobs:
         LIB_DIR="/usr/lib"
         JAVA_DIR="/usr/share/java"
         
-        if [ ! -f "libjicmp.so" ]; then
-          echo "错误: 缺少 libjicmp.so"
+        if [ ! -f "libjicmp6.la" ]; then
+          echo "错误: 缺少 libjicmp6.la"
           exit 1
         fi
         
-        echo "安装 libjicmp.so 到 $LIB_DIR"
-        sudo install -m 0755 libjicmp.so $LIB_DIR/
+        echo "安装 libjicmp6.la 到 $LIB_DIR"
+        sudo install -m 0755 libjicmp6.la $LIB_DIR/
         
         echo "安装 jicmp.jar 到 $JAVA_DIR"
         sudo install -m 0644 jicmp.jar $JAVA_DIR/
