@@ -1,0 +1,57 @@
+name: Build fping for ARM64
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git autoconf automake libtool \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+      - name: Clone fping
+        run: |
+          git clone https://github.com/schweikert/fping.git
+          cd fping
+          git checkout v5.1  # 使用稳定版本
+
+      - name: Configure and Build
+        run: |
+          cd fping
+          ./autogen.sh
+          ./configure \
+            --host=aarch64-linux-gnu \
+            --prefix=/usr/aarch64-linux-gnu \
+            CC=aarch64-linux-gnu-gcc
+            
+          make -j$(nproc)
+
+      - name: Create artifact directory
+        run: mkdir -p artifact
+
+      - name: Copy binary
+        run: |
+          cp fping/fping artifact/
+          aarch64-linux-gnu-strip artifact/fping
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fping-arm64
+          path: artifact/fping
+          retention-days: 5
