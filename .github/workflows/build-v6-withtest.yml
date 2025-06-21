@@ -1,0 +1,129 @@
+name: Build and Test for Kylin ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
+      options: --privileged
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 安装构建依赖
+      - name: Setup build environment
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev:arm64 \
+            automake autoconf libtool \
+            openjdk-8-jdk-headless:arm64 \
+            git make pkg-config \
+            qemu-user-static binfmt-support
+
+      # 构建库
+      - name: Build for ARM64
+        run: |
+          export CC="aarch64-linux-gnu-gcc"
+          export CXX="aarch64-linux-gnu-g++"
+          export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-arm64"
+          
+          autoreconf -fvi
+          ./configure \
+            --host=aarch64-linux-gnu \
+            --build=x86_64-linux-gnu
+            
+          make -j$(nproc)
+          
+          # 保存构建产物
+          mkdir artifacts
+          find . -name '*.so' -exec cp {} artifacts \;
+          cp ./src/java/lib/jicmp6.jar artifacts
+
+      # 在 QEMU 模拟的 ARM 环境中测试
+      - name: Test in ARM environment
+        run: |
+          # 安装测试环境
+          apt-get install -y qemu-user qemu-user-static
+          update-binfmts --enable qemu-aarch64
+          
+          # 准备测试目录
+          mkdir -p test-artifacts
+          cp artifacts/* test-artifacts/
+          
+          # 创建测试程序
+          cat > test-artifacts/TestJicmp6.java <<'EOF'
+          import org.opennms.protocols.icmp6.ICMPv6EchoRequest;
+          import org.opennms.protocols.icmp6.ICMPv6Socket;
+          
+          public class TestJicmp6 {
+              public static void main(String[] args) {
+                  try {
+                      System.out.println("[TEST] Loading JICMP6 library...");
+                      
+                      // 创建 ICMPv6 socket
+                      ICMPv6Socket socket = new ICMPv6Socket(1000);
+                      System.out.println("[TEST] ICMPv6 socket created successfully");
+                      
+                      // 创建测试请求（使用环回地址 ::1）
+                      byte[] addr = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}; // ::1
+                      ICMPv6EchoRequest request = new ICMPv6EchoRequest(1234, 1, addr);
+                      
+                      // 发送请求
+                      socket.send(request);
+                      System.out.println("[TEST] ICMPv6 echo request sent to ::1");
+                      
+                      // 尝试接收响应（非必须，验证基本功能）
+                      System.out.println("[TEST] Waiting for response (timeout 3s)...");
+                      socket.setSoTimeout(3000);
+                      socket.receive();
+                      System.out.println("[TEST] Received response! Test PASSED");
+                  } catch (Exception e) {
+                      System.err.println("[TEST] Test FAILED: " + e.getMessage());
+                      e.printStackTrace();
+                      System.exit(1);
+                  }
+              }
+          }
+          EOF
+          
+          # 编译测试程序 (使用 QEMU 模拟 ARM Java)
+          cd test-artifacts
+          qemu-aarch64-static /usr/lib/jvm/java-8-openjdk-arm64/bin/javac \
+            -cp jicmp6.jar \
+            TestJicmp6.java
+          
+          # 设置非 root ping 权限 (在容器内)
+          sysctl -w net.ipv4.ping_group_range="0 2147483647"
+          
+          # 运行测试 (使用 QEMU 模拟 ARM 环境)
+          echo -e "\n\n[TEST] Starting library test in ARM environment..."
+          qemu-aarch64-static /usr/lib/jvm/java-8-openjdk-arm64/bin/java \
+            -Djava.library.path=. \
+            -cp .:jicmp6.jar \
+            TestJicmp6
+          
+          # 检查测试结果
+          if [ $? -ne 0 ]; then
+            echo "::error::❌ Library test FAILED"
+            exit 1
+          else
+            echo "::notice::✅ Library test PASSED"
+          fi
+
+      # 上传构建产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: jicmp6-arm64-binaries
+          path: artifacts/*
