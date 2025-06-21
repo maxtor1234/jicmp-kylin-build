@@ -7,46 +7,40 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-linux-22.04
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
+      - uses: actions/checkout@v4
+      
+      # 使用原生 ARM 环境（比交叉编译更可靠）
+      - name: Setup ARM64 environment
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Install dependencies
+      - name: Build using Docker
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git autoconf automake libtool \
-            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-
-      - name: Clone fping
-        run: |
-          git clone https://github.com/schweikert/fping.git
-          cd fping
-          git checkout v5.1
-
-      - name: Build for ARM64
-        run: |
-          cd fping
-          ./autogen.sh
-          ./configure \
-            --host=aarch64-linux-gnu \
-            CC=aarch64-linux-gnu-gcc
-          make -j$(nproc)
+          docker run --rm --platform linux/arm64 \
+            -v $(pwd):/build -w /build \
+            arm64v8/ubuntu:22.04 \
+            bash -c "
+            apt-get update && \
+            apt-get install -y git autoconf automake libtool && \
+            git clone https://github.com/schweikert/fping.git && \
+            cd fping && \
+            ./autogen.sh && \
+            ./configure && \
+            make -j$(nproc) && \
+            cp fping /build/
+            "
 
       - name: Verify binary
         run: |
-          file fping/fping | grep "ARM aarch64"
-          chmod +x fping/fping
+          file fping | grep "ARM aarch64" || (echo "❌ 错误的架构类型" && file fping && exit 1)
+          chmod +x fping
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: fping-arm64
-          path: fping/fping
+          path: fping
           retention-days: 5
