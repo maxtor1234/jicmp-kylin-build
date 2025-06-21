@@ -9,15 +9,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Prepare build environment
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -28,30 +28,25 @@ jobs:
         run: |
           git clone https://github.com/schweikert/fping.git
           cd fping
-          git checkout v5.1  # 使用稳定版本
+          git checkout v5.1
 
-      - name: Configure and Build
+      - name: Build for ARM64
         run: |
           cd fping
           ./autogen.sh
           ./configure \
             --host=aarch64-linux-gnu \
-            --prefix=/usr/aarch64-linux-gnu \
             CC=aarch64-linux-gnu-gcc
-            
           make -j$(nproc)
 
-      - name: Create artifact directory
-        run: mkdir -p artifact
-
-      - name: Copy binary
+      - name: Verify binary
         run: |
-          cp fping/fping artifact/
-          aarch64-linux-gnu-strip artifact/fping
+          file fping/fping | grep "ARM aarch64"
+          chmod +x fping/fping
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: fping-arm64
-          path: artifact/fping
+          path: fping/fping
           retention-days: 5
