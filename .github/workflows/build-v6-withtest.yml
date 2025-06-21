@@ -22,14 +22,26 @@ jobs:
           apt-get install -y git
           git --version
 
-      # 2. 完整检出代码（含子模块）
+      # 2. 完整检出代码（修复检出问题）
       - name: Checkout code with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          path: jicmp6
+          # 明确指定仓库URL和分支
+          repository: OpenNMS/jicmp6
+          ref: jicmp6-2.0.4-1  # 使用特定标签
+          path: jicmp6-src
 
-      # 3. 完全使用 ubuntu-ports 源
+      # 3. 验证检出结果
+      - name: Verify checkout
+        run: |
+          echo "当前工作目录: $(pwd)"
+          echo "检出目录内容:"
+          ls -la jicmp6-src
+          echo "项目文件列表:"
+          find jicmp6-src -type f | head -50
+
+      # 4. 完全使用 ubuntu-ports 源
       - name: Setup ARM build environment
         run: |
           # 添加ARM64架构支持
@@ -60,32 +72,27 @@ jobs:
             make pkg-config \
             qemu-user-static binfmt-support
 
-      # 4. 修复autoreconf问题
+      # 5. 构建ARM库（修复路径问题）
       - name: Build for ARM64
         run: |
           # 进入项目目录
-          cd jicmp6
+          cd jicmp6-src
           
           # 初始化子模块
           git submodule update --init --recursive
           
-          # 确保存在必要的配置文件
-          if [ ! -f configure.ac ]; then
-            echo "Error: configure.ac not found! Listing directory contents:"
-            ls -la
-            exit 1
-          fi
+          # 验证项目结构
+          echo "项目目录内容:"
+          ls -la
           
-          # 修复文件权限（可能因检出方式导致）
-          chmod +x autogen.sh
-          find . -type f -name "*.m4" -exec chmod +x {} \;
-          find . -type f -name "*.ac" -exec chmod +x {} \;
-          
-          # 手动生成配置脚本（替代autoreconf）
-          aclocal -I src/main/autoconf-macros
-          autoheader
-          automake --add-missing --copy
-          autoconf
+          # 生成配置脚本
+          autoreconf -fvi || {
+            echo "autoreconf失败，尝试手动生成配置..."
+            aclocal -I src/main/autoconf-macros
+            autoheader
+            automake --add-missing --copy
+            autoconf
+          }
           
           # 设置编译环境
           export CC="aarch64-linux-gnu-gcc"
@@ -105,7 +112,7 @@ jobs:
           find . -name '*.so' -exec cp {} ../artifacts \;
           cp ./src/java/lib/jicmp6.jar ../artifacts/
 
-      # 5. 在模拟环境中测试
+      # 6. 在模拟环境中测试
       - name: Test in ARM environment
         run: |
           # 启用QEMU
@@ -172,7 +179,7 @@ jobs:
             -cp .:jicmp6.jar \
             TestJicmp6
 
-      # 6. 上传构建产物
+      # 7. 上传构建产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
