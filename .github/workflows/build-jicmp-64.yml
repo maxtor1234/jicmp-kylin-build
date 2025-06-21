@@ -1,4 +1,4 @@
-name: Build jicmp for Kylin ARM (Fixed)
+name: Build jicmp for Kylin ARM (Fixed)-64
 
 on:
   push:
@@ -30,6 +30,10 @@ jobs:
       with:
         java-version: '8'
         distribution: 'temurin'
+    - name: Enable multi-arch and update
+      run: |
+        sudo dpkg --add-architecture arm64
+        sudo apt-get update -y      
         
     - name: Install build dependencies
       run: |
@@ -40,6 +44,7 @@ jobs:
           libtool \
           gcc-aarch64-linux-gnu \ 
           g++-aarch64-linux-gnu \
+          libc6-dev-arm64-cross \
           make
         
     - name: Initialize and fix submodules
