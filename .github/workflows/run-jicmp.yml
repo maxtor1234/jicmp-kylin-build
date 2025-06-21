@@ -1,30 +1,32 @@
-name: Run JICMP Java Test on ARM64
+name: Run JICMP TestInitialization on ARM64
+
 on:
   push:
-    branches: [ main ]
+    branches: [main]  
   workflow_dispatch:  # 允许手动触发
+
 jobs:
   test-jicmp:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Enable ARM64 emulation with QEMU
         run: |
           docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - name: Run Java test in ARM64 container
+
+      - name: Run Java test in ARM64 container  
         run: |
           docker run --platform linux/arm64 -v $(pwd):/app arm64v8/ubuntu:22.04 /bin/bash -c "
-            # 1. 安装 OpenJDK 和其他依赖
-            apt-get update && apt-get install -y openjdk-17-jdk
-            
-            # 2. 进入仓库目录
+            # 1. 安装 OpenJDK 和基础依赖
+            apt-get update && apt-get install -y openjdk-17-jdk libc6-dev
+
+            # 2. 进入目录并设置库路径
             cd /app
-            
-            # 3. 确保 libjicmp.so 在动态库路径中
             export LD_LIBRARY_PATH=/app:$LD_LIBRARY_PATH
-            
-            # 4. 编译并运行 Java 程序
-            javac -cp jicmp.jar testjicmp6.java
-            java -cp .:jicmp.jar testjicmp6
+
+            # 3. 编译运行 TestInitialization
+            javac -cp jicmp.jar TestInitialization.java
+            java -cp .:jicmp.jar TestInitialization
           "
