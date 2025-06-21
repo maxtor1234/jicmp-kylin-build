@@ -68,7 +68,9 @@ jobs:
     - name: Initialize and fix submodules
       run: |
         cd jicmp-source
-        
+        echo "验证目标架构"
+        aarch64-linux-gnu-gcc -v
+        aarch64-linux-gnu-gcc -dumpmachine
         # 确保子模块初始化
         if [ ! -d "macros" ]; then
           echo "初始化子模块..."
@@ -123,7 +125,7 @@ jobs:
         # 设置 Java 环境
         export JAVA_HOME=$JAVA_HOME_8_X64
         export PATH=$JAVA_HOME/bin:$PATH
-        wget -O config.sub 'https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub'
+        wget -O config.sub "https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD"
         chmod +x config.sub
         # 配置
         ./configure --host=host=aarch64-linux-gnu --prefix=/usr --libdir=/usr/lib/arm-linux-gnueabihf    
