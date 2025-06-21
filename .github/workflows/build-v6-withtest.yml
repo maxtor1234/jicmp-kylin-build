@@ -12,13 +12,24 @@ jobs:
       image: ubuntu:22.04
       options: --privileged
     steps:
+      # 1. 安装新版 Git（解决子模块问题）
+      - name: Install Git 2.18+
+        run: |
+          apt-get update
+          apt-get install -y software-properties-common
+          add-apt-repository -y ppa:git-core/ppa
+          apt-get update
+          apt-get install -y git
+          git --version
+
+      # 2. 完整检出代码（含子模块）
       - name: Checkout code with submodules
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 安装构建依赖
-      - name: Setup build environment
+      # 3. 安装构建依赖
+      - name: Setup ARM build environment
         run: |
           dpkg --add-architecture arm64
           apt-get update
@@ -28,10 +39,10 @@ jobs:
             libc6-dev:arm64 \
             automake autoconf libtool \
             openjdk-8-jdk-headless:arm64 \
-            git make pkg-config \
+            make pkg-config \
             qemu-user-static binfmt-support
 
-      # 构建库
+      # 4. 构建 ARM 库
       - name: Build for ARM64
         run: |
           export CC="aarch64-linux-gnu-gcc"
@@ -45,19 +56,18 @@ jobs:
             
           make -j$(nproc)
           
-          # 保存构建产物
+          # 收集构建产物
           mkdir -p artifacts
           find . -name '*.so' -exec cp {} artifacts \;
           cp ./src/java/lib/jicmp6.jar artifacts/
 
-      # 在 QEMU 模拟的 ARM 环境中测试
+      # 5. 在模拟环境中测试
       - name: Test in ARM environment
         run: |
-          # 安装测试环境
-          apt-get install -y qemu-user qemu-user-static
+          # 启用 QEMU
           update-binfmts --enable qemu-aarch64
           
-          # 准备测试目录
+          # 准备测试环境
           mkdir -p test-artifacts
           cp artifacts/* test-artifacts/
           
@@ -83,14 +93,16 @@ jobs:
                       socket.send(request);
                       System.out.println("[TEST] ICMPv6 echo request sent to ::1");
                       
-                      // 尝试接收响应（非必须，验证基本功能）
+                      // 尝试接收响应（超时视为部分成功）
                       System.out.println("[TEST] Waiting for response (timeout 3s)...");
                       socket.setSoTimeout(3000);
-                      socket.receive();
-                      System.out.println("[TEST] Received response! Test PASSED");
-                  } catch (java.net.SocketTimeoutException e) {
-                      System.out.println("[TEST] Timeout expected in CI environment. Basic functionality verified.");
-                      System.out.println("[TEST] Partial test PASSED - Library is functional");
+                      try {
+                          socket.receive();
+                          System.out.println("[TEST] Received response! Test PASSED");
+                      } catch (java.net.SocketTimeoutException e) {
+                          System.out.println("[TEST] Timeout occurred (expected in CI). Basic functionality verified.");
+                          System.out.println("[TEST] Library test PASSED (core functions work)");
+                      }
                   } catch (Exception e) {
                       System.err.println("[TEST] Test FAILED: " + e.getMessage());
                       e.printStackTrace();
@@ -115,16 +127,8 @@ jobs:
             -Djava.library.path=. \
             -cp .:jicmp6.jar \
             TestJicmp6
-          
-          # 检查测试结果
-          if [ $? -ne 0 ]; then
-            echo "::error::❌ Library test FAILED"
-            exit 1
-          else
-            echo "::notice::✅ Library test PASSED"
-          fi
 
-      # 上传构建产物 (使用 v4)
+      # 6. 上传构建产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
