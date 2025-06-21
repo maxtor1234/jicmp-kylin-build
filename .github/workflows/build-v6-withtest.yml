@@ -28,23 +28,26 @@ jobs:
         with:
           submodules: recursive
 
-      # 3. 修复软件源并安装ARM构建环境
+      # 3. 完全使用 ubuntu-ports 源
       - name: Setup ARM build environment
         run: |
           # 添加ARM64架构支持
           dpkg --add-architecture arm64
           
-          # 修复软件源 - 使用更可靠的源
-          sed -i 's|http://archive.ubuntu.com|http://ports.ubuntu.com|g' /etc/apt/sources.list
-          sed -i 's|http://security.ubuntu.com|http://ports.ubuntu.com|g' /etc/apt/sources.list
+          # 完全替换为 ubuntu-ports 源
+          echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse" > /etc/apt/sources.list
+          echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list
+          echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse" >> /etc/apt/sources.list
+          echo "deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse" >> /etc/apt/sources.list
           
-          # 添加主要组件
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted" > /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted" >> /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy universe" >> /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates universe" >> /etc/apt/sources.list.d/arm64.list
+          # ARM64 专用源
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" > /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse" >> /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" >> /etc/apt/sources.list.d/arm64.list
           
-          apt-get update -o APT::Architecture="arm64" -o APT::Architectures="arm64"
+          # 更新软件包列表
+          apt-get update
           
           # 安装必要的包
           apt-get install -y \
