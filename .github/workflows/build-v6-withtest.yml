@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          path: jicmp6  # 明确指定检出路径
+          path: jicmp6
 
       # 3. 完全使用 ubuntu-ports 源
       - name: Setup ARM build environment
@@ -60,22 +60,37 @@ jobs:
             make pkg-config \
             qemu-user-static binfmt-support
 
-      # 4. 构建ARM库 - 修复路径问题
+      # 4. 修复autoreconf问题
       - name: Build for ARM64
         run: |
-          # 进入正确的项目目录
+          # 进入项目目录
           cd jicmp6
           
           # 初始化子模块
           git submodule update --init --recursive
           
+          # 确保存在必要的配置文件
+          if [ ! -f configure.ac ]; then
+            echo "Error: configure.ac not found! Listing directory contents:"
+            ls -la
+            exit 1
+          fi
+          
+          # 修复文件权限（可能因检出方式导致）
+          chmod +x autogen.sh
+          find . -type f -name "*.m4" -exec chmod +x {} \;
+          find . -type f -name "*.ac" -exec chmod +x {} \;
+          
+          # 手动生成配置脚本（替代autoreconf）
+          aclocal -I src/main/autoconf-macros
+          autoheader
+          automake --add-missing --copy
+          autoconf
+          
           # 设置编译环境
           export CC="aarch64-linux-gnu-gcc"
           export CXX="aarch64-linux-gnu-g++"
           export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-arm64"
-          
-          # 生成配置脚本
-          autoreconf -fvi
           
           # 配置项目
           ./configure \
