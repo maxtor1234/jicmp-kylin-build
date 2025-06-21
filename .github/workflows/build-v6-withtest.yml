@@ -67,7 +67,7 @@ jobs:
             make pkg-config \
             qemu-user-static binfmt-support
 
-      # 5. 修复 Java 检测问题
+      # 5. 修复 Java JAR 生成问题
       - name: Build for ARM64
         run: |
           cd jicmp6-src
@@ -118,11 +118,23 @@ jobs:
             --build=x86_64-linux-gnu \
             --disable-java-version-check
           
+          # 构建本地库
           make -j$(nproc)
           
+          # 修复：显式构建Java部分
+          echo "显式构建Java部分..."
+          (cd src/java && make)
+          
+          # 验证JAR文件存在
+          echo "验证构建产物:"
+          find . -name '*.so' -ls
+          ls -l src/java/lib/
+          test -f src/java/lib/jicmp6.jar && echo "jicmp6.jar 存在" || echo "jicmp6.jar 不存在"
+          
+          # 收集构建产物
           mkdir -p ../artifacts
           find . -name '*.so' -exec cp {} ../artifacts \;
-          cp ./src/java/lib/jicmp6.jar ../artifacts/
+          cp src/java/lib/jicmp6.jar ../artifacts/
 
       # 6. 在模拟环境中测试
       - name: Test in ARM environment
