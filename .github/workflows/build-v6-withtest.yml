@@ -27,6 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          path: jicmp6  # 明确指定检出路径
 
       # 3. 完全使用 ubuntu-ports 源
       - name: Setup ARM build environment
@@ -59,24 +60,35 @@ jobs:
             make pkg-config \
             qemu-user-static binfmt-support
 
-      # 4. 构建ARM库
+      # 4. 构建ARM库 - 修复路径问题
       - name: Build for ARM64
         run: |
+          # 进入正确的项目目录
+          cd jicmp6
+          
+          # 初始化子模块
+          git submodule update --init --recursive
+          
+          # 设置编译环境
           export CC="aarch64-linux-gnu-gcc"
           export CXX="aarch64-linux-gnu-g++"
           export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-arm64"
           
+          # 生成配置脚本
           autoreconf -fvi
+          
+          # 配置项目
           ./configure \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu
             
+          # 编译
           make -j$(nproc)
           
           # 收集构建产物
-          mkdir -p artifacts
-          find . -name '*.so' -exec cp {} artifacts \;
-          cp ./src/java/lib/jicmp6.jar artifacts/
+          mkdir -p ../artifacts
+          find . -name '*.so' -exec cp {} ../artifacts \;
+          cp ./src/java/lib/jicmp6.jar ../artifacts/
 
       # 5. 在模拟环境中测试
       - name: Test in ARM environment
