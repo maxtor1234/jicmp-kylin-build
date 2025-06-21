@@ -30,6 +30,13 @@ jobs:
       with:
         java-version: '8'
         distribution: 'temurin'
+        
+    - name: Fix Ubuntu 24.04 repos
+      run: |
+        sudo sed -i 's|security.ubuntu.com|archive.ubuntu.com|g' /etc/apt/sources.list
+        sudo sed -i 's|http://|http://ports.|g' /etc/apt/sources.list.d/ubuntu-ports.list
+        sudo apt-get update
+        
     - name: Enable multi-arch and update
       run: |
         sudo dpkg --add-architecture arm64
@@ -37,7 +44,6 @@ jobs:
         
     - name: Install build dependencies
       run: |
-        sudo apt-get update
         sudo apt-get install -y \
           automake \
           autoconf \
