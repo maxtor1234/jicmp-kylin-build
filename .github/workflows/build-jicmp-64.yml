@@ -61,8 +61,8 @@ jobs:
           libtool \
           gcc-aarch64-linux-gnu \ 
           g++-aarch64-linux-gnu \
-          libc6-dev-arm64-cross \
-          make
+          libc6-dev-arm64-cross
+        make
         
     - name: Initialize and fix submodules
       run: |
