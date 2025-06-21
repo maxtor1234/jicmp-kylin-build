@@ -7,12 +7,12 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ubuntu:22.04
       options: --privileged
     steps:
-      # 1. 安装新版 Git（解决子模块问题）
+      # 1. 安装新版 Git
       - name: Install Git 2.18+
         run: |
           apt-get update
@@ -28,11 +28,25 @@ jobs:
         with:
           submodules: recursive
 
-      # 3. 安装构建依赖
+      # 3. 修复软件源并安装ARM构建环境
       - name: Setup ARM build environment
         run: |
+          # 添加ARM64架构支持
           dpkg --add-architecture arm64
-          apt-get update
+          
+          # 修复软件源 - 使用更可靠的源
+          sed -i 's|http://archive.ubuntu.com|http://ports.ubuntu.com|g' /etc/apt/sources.list
+          sed -i 's|http://security.ubuntu.com|http://ports.ubuntu.com|g' /etc/apt/sources.list
+          
+          # 添加主要组件
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted" > /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted" >> /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy universe" >> /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates universe" >> /etc/apt/sources.list.d/arm64.list
+          
+          apt-get update -o APT::Architecture="arm64" -o APT::Architectures="arm64"
+          
+          # 安装必要的包
           apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
@@ -42,7 +56,7 @@ jobs:
             make pkg-config \
             qemu-user-static binfmt-support
 
-      # 4. 构建 ARM 库
+      # 4. 构建ARM库
       - name: Build for ARM64
         run: |
           export CC="aarch64-linux-gnu-gcc"
@@ -64,7 +78,7 @@ jobs:
       # 5. 在模拟环境中测试
       - name: Test in ARM environment
         run: |
-          # 启用 QEMU
+          # 启用QEMU
           update-binfmts --enable qemu-aarch64
           
           # 准备测试环境
@@ -81,11 +95,11 @@ jobs:
                   try {
                       System.out.println("[TEST] Loading JICMP6 library...");
                       
-                      // 创建 ICMPv6 socket
+                      // 创建ICMPv6 socket
                       ICMPv6Socket socket = new ICMPv6Socket(1000);
                       System.out.println("[TEST] ICMPv6 socket created successfully");
                       
-                      // 创建测试请求（使用环回地址 ::1）
+                      // 创建测试请求（使用环回地址::1）
                       byte[] addr = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}; // ::1
                       ICMPv6EchoRequest request = new ICMPv6EchoRequest(1234, 1, addr);
                       
@@ -118,7 +132,7 @@ jobs:
             -cp jicmp6.jar \
             TestJicmp6.java
           
-          # 设置非 root ping 权限
+          # 设置非root ping权限
           sysctl -w net.ipv4.ping_group_range="0 2147483647"
           
           # 运行测试
