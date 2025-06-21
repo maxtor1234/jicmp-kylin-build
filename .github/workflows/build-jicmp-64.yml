@@ -128,7 +128,7 @@ jobs:
         wget -O config.sub "https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD"
         chmod +x config.sub
         # 配置
-        ./configure --host=host=aarch64-linux-gnu --prefix=/usr --libdir=/usr/lib/arm-linux-gnueabihf    
+        ./configure --host=aarch64-linux-gnu --prefix=/usr --libdir=/usr/lib/arm-linux-gnueabihf    
         # 编译
         make -j4
         
