@@ -39,6 +39,8 @@ jobs:
           echo "关键文件检查:"
           test -f jicmp6-src/configure.ac && echo "configure.ac 存在" || echo "configure.ac 不存在"
           test -d jicmp6-src/src/main/autoconf-macros && echo "autoconf-macros 存在" || echo "autoconf-macros 不存在"
+          echo "Java 源文件位置:"
+          find jicmp6-src -name "*.java" | head -5
 
       # 4. 设置 ARM 构建环境
       - name: Setup ARM build environment
@@ -121,20 +123,36 @@ jobs:
           # 构建本地库
           make -j$(nproc)
           
-          # 修复：显式构建Java部分
-          echo "显式构建Java部分..."
-          (cd src/java && make)
+          # 修复：使用正确路径构建Java部分
+          echo "查找Java源文件位置..."
+          JAVA_SRC_DIR=$(find . -type d -name "java" | grep -m1 "src/java")
+          if [ -z "$JAVA_SRC_DIR" ]; then
+            echo "错误: 找不到Java源文件目录"
+            find . -type d | grep -i java
+            exit 1
+          fi
           
-          # 验证JAR文件存在
-          echo "验证构建产物:"
-          find . -name '*.so' -ls
-          ls -l src/java/lib/
-          test -f src/java/lib/jicmp6.jar && echo "jicmp6.jar 存在" || echo "jicmp6.jar 不存在"
+          echo "在目录 $JAVA_SRC_DIR 中构建Java部分..."
+          cd "$JAVA_SRC_DIR"
+          make
+          cd -
+          
+          # 查找JAR文件
+          echo "查找JAR文件..."
+          JAR_FILE=$(find . -name "jicmp6.jar")
+          if [ -z "$JAR_FILE" ]; then
+            echo "错误: 找不到jicmp6.jar文件"
+            find . -name "*.jar"
+            exit 1
+          fi
           
           # 收集构建产物
           mkdir -p ../artifacts
           find . -name '*.so' -exec cp {} ../artifacts \;
-          cp src/java/lib/jicmp6.jar ../artifacts/
+          cp "$JAR_FILE" ../artifacts/
+          
+          echo "构建产物:"
+          ls -l ../artifacts
 
       # 6. 在模拟环境中测试
       - name: Test in ARM environment
