@@ -40,10 +40,9 @@ jobs:
           test -f jicmp6-src/configure.ac && echo "configure.ac 存在" || echo "configure.ac 不存在"
           test -d jicmp6-src/src/main/autoconf-macros && echo "autoconf-macros 存在" || echo "autoconf-macros 不存在"
 
-      # 4. 设置 ARM 构建环境 (修复 Java 问题)
+      # 4. 设置 ARM 构建环境
       - name: Setup ARM build environment
         run: |
-          # 添加ARM64架构支持
           dpkg --add-architecture arm64
           
           # 设置软件源
@@ -58,16 +57,12 @@ jobs:
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse" >> /etc/apt/sources.list.d/arm64.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" >> /etc/apt/sources.list.d/arm64.list
           
-          # 更新软件包列表
           apt-get update
-          
-          # 安装必要的包
           apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             libc6-dev:arm64 \
             automake autoconf libtool \
-            # 安装 x86_64 的 OpenJDK 用于构建
             openjdk-8-jdk-headless \
             make pkg-config \
             qemu-user-static binfmt-support
@@ -75,18 +70,13 @@ jobs:
       # 5. 修复 Java 检测问题
       - name: Build for ARM64
         run: |
-          # 进入项目目录
           cd jicmp6-src
-          
-          # 初始化子模块
           git submodule update --init --recursive
           
-          # 手动设置 Java 环境变量 (使用 x86_64 的 JDK)
+          # 设置x86_64 Java环境
           export JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64"
           export PATH="$JAVA_HOME/bin:$PATH"
-          
           echo "使用 JAVA_HOME: $JAVA_HOME"
-          echo "Java 版本:"
           java -version
           
           # 生成配置脚本
@@ -102,44 +92,34 @@ jobs:
           export CC="aarch64-linux-gnu-gcc"
           export CXX="aarch64-linux-gnu-g++"
           
-          # 绕过 Java 版本检查
-          cat > java-wrapper <<'EOF'
-#!/bin/sh
-if [ "$1" = "-version" ]; then
-  echo "java version \"1.8.0\""
-  exit 0
-else
-  echo "java-wrapper: $1" >&2
-  exit 1
-fi
-EOF
-          chmod +x java-wrapper
+          # 创建Java包装器
+          echo '#!/bin/sh
+          if [ "$1" = "-version" ]; then
+            echo "java version \"1.8.0\""
+            exit 0
+          else
+            exec java "$@"
+          fi' > java-wrapper
           
-          cat > javac-wrapper <<'EOF'
-#!/bin/sh
-if [ "$1" = "-version" ]; then
-  echo "javac 1.8.0"
-  exit 0
-else
-  echo "javac-wrapper: $1" >&2
-  exit 1
-fi
-EOF
-          chmod +x javac-wrapper
+          echo '#!/bin/sh
+          if [ "$1" = "-version" ]; then
+            echo "javac 1.8.0"
+            exit 0
+          else
+            exec javac "$@"
+          fi' > javac-wrapper
           
+          chmod +x java-wrapper javac-wrapper
           export PATH="$(pwd):$PATH"
           
-          # 配置项目 (禁用 Java 测试)
+          # 配置项目
           ./configure \
             --host=aarch64-linux-gnu \
             --build=x86_64-linux-gnu \
-            --disable-java-version-check \
-            --with-java="$JAVA_HOME"
-            
-          # 编译
+            --disable-java-version-check
+          
           make -j$(nproc)
           
-          # 收集构建产物
           mkdir -p ../artifacts
           find . -name '*.so' -exec cp {} ../artifacts \;
           cp ./src/java/lib/jicmp6.jar ../artifacts/
@@ -147,10 +127,7 @@ EOF
       # 6. 在模拟环境中测试
       - name: Test in ARM environment
         run: |
-          # 启用QEMU
           update-binfmts --enable qemu-aarch64
-          
-          # 准备测试环境
           mkdir -p test-artifacts
           cp artifacts/* test-artifacts/
           
